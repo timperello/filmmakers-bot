@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import os
 import re
 
-URL = "https://www.filmmakers.co.kr/?mid=performerCasting&category=&search_target=title_content&search_keyword=%EC%99%B8%EA%B5%AD%EC%9D%B8"
+URL = "https://www.filmmakers.co.kr/performerCasting?search_target=title_content&search_keyword=%EC%99%B8%EA%B5%AD%EC%9D%B8&extra_vars_gender=%EB%82%A8%EC%9E%90"
 WEBHOOK = os.environ["WEBHOOK"]
 
 HEADERS = {
@@ -33,13 +33,18 @@ for post in posts:
     title = title_tag.text.strip()
     href = title_tag["href"]
 
+    # ID unique
     match = re.search(r'/performerCasting/(\d+)', href)
     post_id = match.group(1) if match else None
 
     link = "https://www.filmmakers.co.kr" + href
 
+    # 🔥 récupérer date/heure
+    time_tag = post.select_one("div.text-xs.text-neutral-500 span")
+    post_time = time_tag.text.strip() if time_tag else "Unknown time"
+
     if post_id:
-        all_posts.append((post_id, title, link))
+        all_posts.append((post_id, title, link, post_time))
 
 # 🔹 Charger last_id
 if os.path.exists(LAST_FILE):
@@ -50,7 +55,7 @@ else:
 
 print("Last ID:", last_id)
 
-# 🔹 Trouver nouveaux posts
+# 🔹 Détecter nouveaux posts
 new_posts = []
 
 if last_id:
@@ -58,21 +63,26 @@ if last_id:
 
     if last_id in ids:
         index = ids.index(last_id)
-        new_posts = all_posts[:index]  # tous ceux avant = nouveaux
+        new_posts = all_posts[:index]
     else:
         print("⚠️ last_id non trouvé → fallback")
-        new_posts = all_posts[:5]  # sécurité
+        new_posts = all_posts[:5]
 
 else:
-    print("First run → on ignore l'envoi")
+    print("First run → init seulement")
     new_posts = []
 
 # 🔹 Envoyer notifications
 if new_posts:
     print(f"{len(new_posts)} nouveaux posts 🚀")
 
-    for post_id, title, link in reversed(new_posts):
-        message = f"🎬 **New casting**\n\n{title}\n{link}"
+    for post_id, title, link, post_time in reversed(new_posts):
+        message = (
+            f"🎬 **New casting**\n\n"
+            f"📝 {title}\n"
+            f"🕒 {post_time}\n"
+            f"🔗 {link}"
+        )
         requests.post(WEBHOOK, json={"content": message})
 
 else:
