@@ -82,7 +82,8 @@ if new_posts:
     # ✅ Ensuite on loop pour les détails
     for post_id, title, link, post_time in reversed(new_posts):
         message = (
-            f"\n\n"
+            f" \n\n"
+            f" \n\n"
             f"🎬 **New casting**\n\n"
             f"📝 {title}\n\n"
             f"🕒 {post_time}\n\n"
