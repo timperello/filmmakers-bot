@@ -81,7 +81,7 @@ if new_posts:
             f"🎬 **New casting**\n\n"
             f"📝 {title}\n"
             f"🕒 {post_time}\n"
-            f"🔗 {link}"
+            f"🔗 {link}\n\n\n"
         )
         requests.post(WEBHOOK, json={"content": message})
 
