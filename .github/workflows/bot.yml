@@ -2,7 +2,7 @@ name: Filmmakers Bot
 
 on:
   schedule:
-    - cron: "*/5 * * * *"  # toutes les 5 minutes (stable)
+    - cron: "*/5 * * * *"  # toutes les 5 minutes
   workflow_dispatch:
 
 jobs:
@@ -10,22 +10,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 🔹 Checkout repo
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
+      # 🔹 Setup Python (version récente + fix node warning)
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install deps
-        run: pip install requests beautifulsoup4 deep-translator
+      # 🔥 Cache pip (ULTRA IMPORTANT pour vitesse)
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
+      # 🔹 Install deps
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      # 🔹 Run script
       - name: Run script
         run: python script.py
         env:
           WEBHOOK: ${{ secrets.WEBHOOK }}
 
+      # 🔹 Save last.txt
       - name: Save state
         run: |
           git config --global user.name "bot"
