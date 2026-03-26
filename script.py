@@ -108,15 +108,13 @@ if new_posts:
 
         message = (
             f"\u200b\n"
-            f"🎬 **New casting**\n"
+            f"🎬 **Nouveau casting posté le {time}**\n"
             f"\u200b\n"
             f"📝 {translated}\n"
             f"\u200b\n"
             f"🇰🇷 {title}\n"
             f"\u200b\n"
             f"💰 {pay}\n"
-            f"\u200b\n"
-            f"🕒 {time}\n"
             f"\u200b\n"
             f"🔗 {link}"
         )
