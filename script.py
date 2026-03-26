@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import os
 import re
 from datetime import datetime
+from deep_translator import GoogleTranslator
 
 URL = "https://www.filmmakers.co.kr/performerCasting?search_target=title_content&search_keyword=%EC%99%B8%EA%B5%AD%EC%9D%B8&extra_vars_gender=%EB%82%A8%EC%9E%90"
 WEBHOOK = os.environ["WEBHOOK"]
@@ -15,18 +16,9 @@ LAST_FILE = "last.txt"
 
 # 🔥 Mois FR
 MONTHS = {
-    1: "Janvier",
-    2: "Février",
-    3: "Mars",
-    4: "Avril",
-    5: "Mai",
-    6: "Juin",
-    7: "Juillet",
-    8: "Août",
-    9: "Septembre",
-    10: "Octobre",
-    11: "Novembre",
-    12: "Décembre"
+    1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril",
+    5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août",
+    9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
 # 🔹 Format date
@@ -36,6 +28,13 @@ def format_date(raw):
         return f"{dt.day} {MONTHS[dt.month]} {dt.year} à {dt.strftime('%Hh%M')}"
     except:
         return raw
+
+# 🔹 Traduction titre
+def translate(text):
+    try:
+        return GoogleTranslator(source='ko', target='en').translate(text)
+    except:
+        return text
 
 # 🔹 Fetch page
 res = requests.get(URL, headers=HEADERS)
@@ -56,22 +55,34 @@ for post in posts:
         continue
 
     title = title_tag.text.strip()
+    translated_title = translate(title)
+
     href = title_tag["href"]
 
-    # ID unique
+    # ID
     match = re.search(r'/performerCasting/(\d+)', href)
     post_id = match.group(1) if match else None
 
     link = "https://www.filmmakers.co.kr" + href
 
-    # 🔥 date brute
+    # 🔹 Date
     time_tag = post.select_one("div.text-xs.text-neutral-500 span")
-    post_time = time_tag.text.strip() if time_tag else "Unknown time"
-
+    post_time = time_tag.text.strip() if time_tag else "Unknown"
     formatted_time = format_date(post_time)
 
+    # 🔥 SALAIRE
+    pay = "Non précisé"
+    spans = post.select("div.text-sm span")
+
+    for span in spans:
+        if "출연료" in span.text:
+            # récupère le texte complet du parent
+            parent_text = span.parent.text.strip()
+            pay = parent_text.replace("출연료", "").strip()
+            break
+
     if post_id:
-        all_posts.append((post_id, title, link, formatted_time))
+        all_posts.append((post_id, title, translated_title, link, formatted_time, pay))
 
 # 🔹 Charger last_id
 if os.path.exists(LAST_FILE):
@@ -82,7 +93,7 @@ else:
 
 print("Last ID:", last_id)
 
-# 🔹 Détecter nouveaux posts
+# 🔹 Détection nouveaux posts
 new_posts = []
 
 if last_id:
@@ -92,26 +103,32 @@ if last_id:
         index = ids.index(last_id)
         new_posts = all_posts[:index]
     else:
-        print("⚠️ last_id non trouvé → fallback")
+        print("⚠️ fallback")
         new_posts = all_posts
 else:
-    print("First run → init seulement")
+    print("First run")
     new_posts = []
 
-# 🔹 Envoyer notifications
+# 🔹 Notifications
 if new_posts:
-    summary_msg = f"🚀 {len(new_posts)} nouvelles offres sur Filmmakers !"
+    summary_msg = f"🚀 {len(new_posts)} nouvelles offres !"
     requests.post(WEBHOOK, json={"content": summary_msg})
-    print(summary_msg)
 
-    for post_id, title, link, post_time in reversed(new_posts):
+    for post_id, title, translated, link, time, pay in reversed(new_posts):
 
         message = (
-            f"\u200b\n\n"
-            f"🎬 **Nouveau casting**\n\n"
-            f"📝 {title}\n\n"
-            f"🕒 {post_time}\n\n"
-            f"🔗 {link}\n"
+            f"\u200b\n"
+            f"🎬 **Nouvelle offre**\n"
+            f"\u200b\n"
+            f"📝 {translated}\n"
+            f"\u200b\n"
+            f"🇰🇷 {title}\n"
+            f"\u200b\n"
+            f"💰 {pay}\n"
+            f"\u200b\n"
+            f"🕒 {time}\n"
+            f"\u200b\n"
+            f"🔗 {link}"
         )
 
         requests.post(WEBHOOK, json={"content": message})
@@ -119,7 +136,7 @@ if new_posts:
 else:
     print("Pas de nouveau post")
 
-# 🔹 Sauvegarder le plus récent
+# 🔹 Save last
 latest_id = all_posts[0][0]
 
 with open(LAST_FILE, "w", encoding="utf-8") as f:
