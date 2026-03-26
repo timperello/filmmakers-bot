@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import re
+from datetime import datetime
 
 URL = "https://www.filmmakers.co.kr/performerCasting?search_target=title_content&search_keyword=%EC%99%B8%EA%B5%AD%EC%9D%B8&extra_vars_gender=%EB%82%A8%EC%9E%90"
 WEBHOOK = os.environ["WEBHOOK"]
@@ -11,6 +12,30 @@ HEADERS = {
 }
 
 LAST_FILE = "last.txt"
+
+# 🔥 Mois FR
+MONTHS = {
+    1: "Janvier",
+    2: "Février",
+    3: "Mars",
+    4: "Avril",
+    5: "Mai",
+    6: "Juin",
+    7: "Juillet",
+    8: "Août",
+    9: "Septembre",
+    10: "Octobre",
+    11: "Novembre",
+    12: "Décembre"
+}
+
+# 🔹 Format date
+def format_date(raw):
+    try:
+        dt = datetime.strptime(raw, "%Y-%m-%d %H:%M")
+        return f"{dt.day} {MONTHS[dt.month]} {dt.year} à {dt.strftime('%Hh%M')}"
+    except:
+        return raw
 
 # 🔹 Fetch page
 res = requests.get(URL, headers=HEADERS)
@@ -39,12 +64,14 @@ for post in posts:
 
     link = "https://www.filmmakers.co.kr" + href
 
-    # 🔥 récupérer date/heure
+    # 🔥 date brute
     time_tag = post.select_one("div.text-xs.text-neutral-500 span")
     post_time = time_tag.text.strip() if time_tag else "Unknown time"
 
+    formatted_time = format_date(post_time)
+
     if post_id:
-        all_posts.append((post_id, title, link, post_time))
+        all_posts.append((post_id, title, link, formatted_time))
 
 # 🔹 Charger last_id
 if os.path.exists(LAST_FILE):
@@ -67,28 +94,25 @@ if last_id:
     else:
         print("⚠️ last_id non trouvé → fallback")
         new_posts = all_posts
-
 else:
     print("First run → init seulement")
     new_posts = []
 
 # 🔹 Envoyer notifications
 if new_posts:
-    # ✅ Message summary unique
     summary_msg = f"🚀 {len(new_posts)} nouvelles offres sur Filmmakers !"
     requests.post(WEBHOOK, json={"content": summary_msg})
     print(summary_msg)
 
-    # ✅ Ensuite on loop pour les détails
     for post_id, title, link, post_time in reversed(new_posts):
+
         message = (
-            f" \n\n"
-            f" \n\n"
-            f"🎬 **New casting**\n\n"
-            f"📝 {title}\n\n"
-            f"🕒 {post_time}\n\n"
-            f"🔗 {link}\n"
+            f"🎬 **New casting**\u200b"
+            f"📝 {title}\u200b"
+            f"🕒 {post_time}\u200b"
+            f"🔗 {link}"
         )
+
         requests.post(WEBHOOK, json={"content": message})
 
 else:
