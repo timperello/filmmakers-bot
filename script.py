@@ -100,8 +100,15 @@ else:
 
 # 🔹 DISCORD
 if new_posts:
+    count = len(new_posts)
+
+    if count <= 1:
+        text = f"{count} nouvelle offre"
+    else:
+        text = f"{count} nouvelles offres"
+
     requests.post(WEBHOOK, json={
-        "content": f"\u200b\n🚀 {len(new_posts)} nouvelle(s) offre(s) !"
+        "content": f"\u200b\n🚀 {text} !"
     })
 
     for post_id, title, translated, link, time, pay in reversed(new_posts):
