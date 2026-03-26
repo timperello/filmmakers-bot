@@ -107,11 +107,11 @@ if new_posts:
     for post_id, title, link, post_time in reversed(new_posts):
 
         message = (
-            f"🎬 **Nouveau casting**\n\u200b"
-            f"📝 {title}\n\u200b"
-            f"🕒 {post_time}\n\u200b"
+            f"\u200b\n\n"
+            f"🎬 **Nouveau casting**\n\n"
+            f"📝 {title}\n\n"
+            f"🕒 {post_time}\n\n"
             f"🔗 {link}\n"
-            f"\n\u200b"
         )
 
         requests.post(WEBHOOK, json={"content": message})
