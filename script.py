@@ -101,7 +101,7 @@ else:
 # 🔹 DISCORD
 if new_posts:
     requests.post(WEBHOOK, json={
-        "content": f"🚀 {len(new_posts)} nouvelles offres !"
+        "content": f"🚀 {len(new_posts)} nouvelle(s) offre(s) !"
     })
 
     for post_id, title, translated, link, time, pay in reversed(new_posts):
