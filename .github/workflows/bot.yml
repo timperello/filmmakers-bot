@@ -8,6 +8,8 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       # 🔹 Checkout
@@ -20,7 +22,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      # 🔥 Cache pip (même sans requirements.txt)
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -29,21 +30,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      # 🔹 Install deps (direct)
       - name: Install deps
         run: pip install requests beautifulsoup4 deep-translator
 
-      # 🔹 Run script
       - name: Run script
         run: python script.py
         env:
           WEBHOOK: ${{ secrets.WEBHOOK }}
 
-      # 🔹 Save state
       - name: Save state
         run: |
           git config --global user.name "bot"
           git config --global user.email "bot@github.com"
-          git add last.txt || true
-          git commit -m "update last posts" || echo "no changes"
-          git push
+          git add seen_ids.json || true
+          git diff --staged --quiet || (git commit -m "update seen posts" && git push)
