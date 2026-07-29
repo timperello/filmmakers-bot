@@ -2,17 +2,24 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import re
+import json
+import time
 from datetime import datetime
 from deep_translator import GoogleTranslator
 
-URL = "https://www.filmmakers.co.kr/performerCasting?search_target=title_content&search_keyword=%EC%99%B8%EA%B5%AD%EC%9D%B8&extra_vars_gender=%EB%82%A8%EC%9E%90"
+# 🔹 URL de recherche filtrée (ajuste search_keyword / extra_vars_gender selon tes besoins)
+SEARCH_URL = (
+    "https://www.filmmakers.co.kr/performerCasting/"
+    "?search_target=title_content"
+    "&search_keyword=%EC%99%B8%EA%B5%AD%EC%9D%B8"   # 외국인
+    "&extra_vars_gender=%EB%82%A8%EC%9E%90"          # 남자
+)
+
 WEBHOOK = os.environ["WEBHOOK"]
+SEEN_FILE = "seen_ids.json"
+MAX_SEEN = 300
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-LAST_FILE = "last.txt"
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 MONTHS = {
     1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril",
@@ -20,116 +27,181 @@ MONTHS = {
     9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
+DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?")
+
+
 def format_date(raw):
     try:
-        dt = datetime.strptime(raw, "%Y-%m-%d %H:%M")
-        return f"{dt.day} {MONTHS[dt.month]} {dt.year} à {dt.strftime('%Hh%M')}"
-    except:
+        if len(raw) > 10:
+            dt = datetime.strptime(raw, "%Y-%m-%d %H:%M")
+            return f"{dt.day} {MONTHS[dt.month]} {dt.year} à {dt.strftime('%Hh%M')}"
+        else:
+            dt = datetime.strptime(raw, "%Y-%m-%d")
+            return f"{dt.day} {MONTHS[dt.month]} {dt.year}"
+    except Exception:
         return raw
+
 
 def translate(text):
     try:
         return GoogleTranslator(source='ko', target='en').translate(text)
-    except:
+    except Exception:
         return text
 
-# 🔹 Fetch
-res = requests.get(URL, headers=HEADERS)
-soup = BeautifulSoup(res.text, "html.parser")
 
-posts = soup.select("div.p-3.cursor-pointer.group")
+def load_seen():
+    if os.path.exists(SEEN_FILE):
+        with open(SEEN_FILE, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    return set()
 
-if not posts:
-    print("Aucun post trouvé")
-    exit()
 
-all_posts = []
+def save_seen(seen_ids):
+    with open(SEEN_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(seen_ids)[-MAX_SEEN:], f)
 
-for post in posts:
+
+def send_discord(content):
+    try:
+        r = requests.post(WEBHOOK, json={"content": content}, timeout=10)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Erreur webhook: {e}")
+
+
+def parse_post(post):
     title_tag = post.select_one("h2 a")
     if not title_tag:
-        continue
+        return None
 
     title = title_tag.text.strip()
-    translated_title = translate(title)
-
-    href = title_tag["href"]
-
+    href = title_tag.get("href", "")
     match = re.search(r'/performerCasting/(\d+)', href)
-    post_id = match.group(1) if match else None
+    if not match:
+        return None
+    post_id = match.group(1)
+    link = f"https://www.filmmakers.co.kr/performerCasting/{post_id}"
 
-    link = "https://www.filmmakers.co.kr" + href
+    # 🔹 date de création : span dont le texte matche le pattern date
+    created = "Unknown"
+    for span in post.find_all("span"):
+        text = span.get_text(strip=True)
+        if DATE_RE.fullmatch(text):
+            created = text
+            break
 
-    # 🔹 Date
-    time_tag = post.select_one("div.text-xs.text-neutral-500 span")
-    post_time = time_tag.text.strip() if time_tag else "Unknown"
-    formatted_time = format_date(post_time)
+    # 🔹 catégorie : premier span "badge" hors badge-new et hors date
+    category = "N/A"
+    for span in post.find_all("span"):
+        classes = span.get("class", [])
+        text = span.get_text(strip=True)
+        if "badge-new" in classes or DATE_RE.fullmatch(text):
+            continue
+        if text:
+            category = text
+            break
 
-    # 🔥 PAIEMENT CLEAN
-    pay = "Non précisé"
+    # 🔹 grille d'infos structurée (제작/역할/성별/연령/출연료/마감 etc.)
+    info = {}
+    grid = post.select_one("div.grid")
+    if grid:
+        for item in grid.find_all("div", recursive=False):
+            divs = item.find_all("div", recursive=False)
+            if len(divs) >= 2:
+                label = divs[0].get_text(strip=True)
+                value = divs[1].get_text(strip=True)
+                info[label] = value
 
-    pay_label = post.find("span", string=lambda x: x and "출연료" in x)
+    return {
+        "id": post_id,
+        "title": title,
+        "link": link,
+        "created": created,
+        "category": category,
+        "info": info,
+    }
 
-    if pay_label:
-        parent = pay_label.parent
-        full_text = parent.get_text(strip=True)
-        pay = full_text.replace("출연료", "").strip()
 
-    if post_id:
-        all_posts.append((post_id, title, translated_title, link, formatted_time, pay))
+def build_message(post):
+    translated_title = translate(post["title"])
+    translated_category = translate(post["category"])
+    formatted_time = format_date(post["created"])
+    info = post["info"]
 
-# 🔹 LAST ID
-if os.path.exists(LAST_FILE):
-    with open(LAST_FILE, "r", encoding="utf-8") as f:
-        last_id = f.read().strip()
-else:
-    last_id = None
+    lines = [
+        "\u200b",
+        f"🎬 **Nouveau casting posté le {formatted_time}**",
+        "\u200b",
+        f"📁 {translated_category} ({post['category']})",
+        f"📝 {translated_title}",
+        "\u200b",
+        f"🇰🇷 {post['title']}",
+        "\u200b",
+    ]
 
-new_posts = []
+    field_labels = {
+        "제작": "🏢 Production",
+        "성별": "🚻 Genre",
+        "출연료": "💰 Paie",
+        "마감": "⏰ Deadline",
+    }
 
-if last_id:
-    ids = [p[0] for p in all_posts]
+    for ko_label, display_label in field_labels.items():
+        if ko_label in info:
+            value = info[ko_label]
+            if ko_label == "마감" and DATE_RE.fullmatch(value):
+                value = format_date(value)
+            lines.append(f"{display_label} : {value}")
 
-    if last_id in ids:
-        index = ids.index(last_id)
-        new_posts = all_posts[:index]
-    else:
-        new_posts = all_posts
-else:
-    new_posts = []
+    lines.append("\u200b")
+    lines.append(f"🔗 {post['link']}")
 
-# 🔹 DISCORD
-if new_posts:
+    return "\n".join(lines)
+
+
+def main():
+    try:
+        res = requests.get(SEARCH_URL, headers=HEADERS, timeout=10)
+        res.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Erreur fetch: {e}")
+        return
+
+    soup = BeautifulSoup(res.text, "html.parser")
+    post_divs = soup.select("div.p-3.cursor-pointer.group")
+
+    if not post_divs:
+        print("Aucun post trouvé (sélecteur cassé ou page vide) — vérifier le HTML")
+        return
+
+    seen_ids = load_seen()
+    all_posts = []
+    for div in post_divs:
+        parsed = parse_post(div)
+        if parsed:
+            all_posts.append(parsed)
+
+    if not all_posts:
+        print("Aucun post parsable")
+        return
+
+    new_posts = [p for p in all_posts if p["id"] not in seen_ids]
+
+    if not new_posts:
+        save_seen(seen_ids | {p["id"] for p in all_posts})
+        print("Aucune nouvelle offre")
+        return
+
     count = len(new_posts)
+    text = f"{count} nouvelle offre" if count <= 1 else f"{count} nouvelles offres"
+    send_discord(f"\u200b\n🚀 {text} !")
 
-    if count <= 1:
-        text = f"{count} nouvelle offre"
-    else:
-        text = f"{count} nouvelles offres"
+    for post in reversed(new_posts):
+        send_discord(build_message(post))
+        time.sleep(0.5)  # évite le rate limit Discord
 
-    requests.post(WEBHOOK, json={
-        "content": f"\u200b\n🚀 {text} !"
-    })
+    save_seen(seen_ids | {p["id"] for p in all_posts})
 
-    for post_id, title, translated, link, time, pay in reversed(new_posts):
 
-        message = (
-            f"\u200b\n"
-            f"🎬 **Nouveau casting posté le {time}**\n"
-            f"\u200b\n"
-            f"📝 {translated}\n"
-            f"\u200b\n"
-            f"🇰🇷 {title}\n"
-            f"\u200b\n"
-            f"💰 {pay}\n"
-            f"\u200b\n"
-            f"🔗 {link}"
-        )
-
-        requests.post(WEBHOOK, json={"content": message})
-
-# 🔹 SAVE
-latest_id = all_posts[0][0]
-
-with open(LAST_FILE, "w", encoding="utf-8") as f:
-    f.write(latest_id)
+if __name__ == "__main__":
+    main()
